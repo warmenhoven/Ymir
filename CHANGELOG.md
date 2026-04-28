@@ -1,8 +1,32 @@
 # Ymir changelog
 
-## Version 0.3.0
+## Version 0.3.1
 
 In development.
+
+Uses save state file version 12.
+
+### New features and improvements
+
+- Debugger: Add Priority Stack to VDP2 debug overlay.
+- VDP2: Various performance microoptimizations to the software renderer, improving performance in graphics-bound games (especially in high resolution modes).
+
+### Fixes
+
+- Debugger: Various SH2 stack analysis fixes.
+- SH2: Fix illegal slot instruction exception handling. (thanks to @celeriyacon)
+- VDP1: Add game-specific flag for skipping command processing if the top of the table is empty. Enable it exclusively for Sekai no Shasou kara - I Swiss-hen - Alps Tozantetsudou no Tabi. Fixes missing graphics in Gungriffon. (#810)
+- VDP1: Disable early polygon drawing termination when rendering polygons when user clipping mode is inverted. Fixes clipped polygons around the minimap in Machine Head (#767).
+- VDP1: Implement simple infinite loop detection. Fixes slowdown in the Mojave Desert stage (1-2) in Gale Racer.
+- VDP2: Apply color calculations to transparent sprite mesh on layer 0. Fixes stripes on ground plane in Gungriffon.
+- VDP2: Apply color offset to transparent sprite mesh on layer 0 in a separate step. Fixes missing spotlight in the Colonel battle in Mega Man X4. (#818)
+- VDP2: Fix VRAM access calculations when RBG1 is enabled. Fix missing car graphics regression in Gale Racer. (#359)
+- VDP2: Fix and use line color screen calculation ratio when LNCL is inserted. Fixes text background issues in Doukoku Soshite. (#502)
+
+
+## Version 0.3.0
+
+Released 2026-04-23.
 
 Introduced save state file version 12.
 
@@ -13,6 +37,7 @@ Introduced save state file version 12.
 - App: Check for profile at the executable location. (#706)
 - App: Warn users about Flatpak filesystem permissions if the app is running in its sandbox and a disc image fails to load.
 - Backup RAM: Support in-memory and copy-on-write memory-mapped files in addition to regular memory-mapped files.
+- Build: Add simple feature flags system. All feature flags are enabled by default on development builds (including nightly builds).
 - Build: Support Profile-Guided Optimization (PGO) builds. (#742; @mmkzer0)
 - Debugger: Allow scrolling the SH2 disassembly view. (#743; @mmkzer0)
 - Debugger: Colorize VRAM access timing slots in the delay viewer.
@@ -25,13 +50,21 @@ Introduced save state file version 12.
 - Debugger: Optimize SH2 breakpoints and watchpoints when debug tracing is enabled. They no longer become more expensive with the amount of entries added and the baseline cost is lower than before.
 - Debugger: Trace and display SH2 call stack.
 - Debugger: Trace and display SH2 data stack contents.
-- GameDB: Add new flags to double the clock rate of the MC68EC000 and stall VDP1 drawing on VRAM writes to improve compatibility with some games.
+- GameDB: Add new game-specific flags to improve compatibility:
+    - Double the clock rate of the MC68EC000
+    - Stall VDP1 drawing on VRAM writes
+    - Slow down VDP1 rendering
+    - Relax VDP2 bitmap CP VRAM access checks
 - Input: Added support for mouse events.
-- Input: Mouse capture support for light gun and mouse peripherals, supporting these modes:
+- Input: Capture mouse for light gun and mouse peripherals, supporting these modes:
     - System mouse: binds the system mouse cursor to a single peripheral. Mouse cursor is still available to interact with the GUI.
     - Physical mouse: binds one or more mice to different peripherals. Disables the system cursor while any mice is bound.
+    NOTE: This option is only available on nightly builds due to issues with Virtua Gun. (#787)
+    The System mouse capture option only works with Virtua Gun.
+- Input: Experimental Virtua Gun peripheral implementation. (#33)
+    NOTE: This feature is only available on nightly builds at the moment due to issues in nearly all games. (#787)
+    Only House of the Dead is known to work with minor reticle inaccuracy errors.
 - Input: Implemented Shuttle Mouse peripheral. (#32)
-- Input: Implemented Virtua Gun peripheral. (#33)
 - MIDI: Force RtMidi to use dummy API if it fails to initialize, allowing Ymir to run without MIDI drivers.
 - Save states: Added actions to undo a save state and restore an undone save state. (#700, #727; @Fueziwa)
 - Save states: Store one extra save state per slot for undo. (#700, #727; @Fueziwa)
@@ -57,6 +90,8 @@ Introduced save state file version 12.
     - Steamgear Mash -- flickering graphics (#440)
     - Waku Waku 7 -- flickering sprites (#424)
 - GameDB: Force fast bus timings to fix crashes in Deep Fear. (#740)
+- GameDB: Slow down VDP1 to fix no-boot regression in Jikkyou Oshaberi Parodius. (#283)
+- GameDB: Slow down VDP1 to fix performance issues in Fishing Koushien II. (#812)
 - Input: Fixed analog to D-Pad axis conversion to not overwrite whenever an input was released in opposite direction. (#754; @PringleElUno)
 - MIDI: Defend against crashes when the library fails to initialize.
 - SCU: Timer fixes. (thanks to @celeriyacon)
@@ -73,7 +108,6 @@ Introduced save state file version 12.
 - VDP1: Increase PTM=1 drawing delay and apply it only during VBlank. Fixes flickering graphics on Earthworm Jim 2. (#745)
 - VDP1: Properly load save state data when threaded VDP1 rendering is enabled.
 - VDP1: Rework cycle counting method and increase cycle budget per frame. Fixes slowdowns in Road Rash and graphics glitches in multiple games, including Virtua Cop and Burning Rangers. (#704, #721, #722)
-- VDP1: Slow down VDP1 to fix no-boot regression in Jikkyou Oshaberi Parodius. (#283)
 - VDP1: Stall VDP1 drawing on VRAM writes exclusively on Mega Man X3 and Rockman X3 to fix garbled sprites. (#244)
 - VDP1: Stop processing commands if encountering an all-zeros entry. Fixes invalid clipping coordinates in Sekai no Shasou kara - I Swiss-hen - Alps Tozantetsudou no Tabi. (#761)
 - VDP2: Apply VRAM access shift per bank to scroll NBGs with invalid timing patterns. Fixes World Heroes Perfect title screen shift and Cyberbots - Fullmetal Madness HUD shift and broken background in stage 2. (#756)

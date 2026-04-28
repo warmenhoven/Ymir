@@ -173,10 +173,10 @@ FORCE_INLINE static void TraceReturn(debug::ISH2Tracer *tracer, uint32 target) {
 }
 
 template <bool debug>
-FORCE_INLINE static void TraceReturnFromException(debug::ISH2Tracer *tracer, uint32 target) {
+FORCE_INLINE static void TraceReturnFromException(debug::ISH2Tracer *tracer, uint32 target, uint32 newSP) {
     if constexpr (debug) {
         if (tracer) {
-            return tracer->ReturnFromException(target);
+            return tracer->ReturnFromException(target, newSP);
         }
     }
 }
@@ -2131,6 +2131,7 @@ FORCE_INLINE uint64 SH2::EnterException(uint8 vectorNumber) {
     TraceException<debug>(m_tracer, vectorNumber, PC, SR.u32, R[15], target);
     PC = target;
     R[15] -= 8;
+    m_delaySlot = false;
     return cycles;
 }
 
@@ -2473,7 +2474,9 @@ FORCE_INLINE uint64 SH2::InterpretNext() {
     case OpcodeType::Delay_TST_I: return TSTI<debug, true>(args);
     case OpcodeType::Delay_TST_M: return TSTM<debug, enableCache, true>(args);
 
-    case OpcodeType::IllegalSlot: return EnterException<debug, enableCache>(xvSlotIllegalInstr);
+    case OpcodeType::IllegalSlot:
+        AdvancePC<debug, true>();
+        return EnterException<debug, enableCache>(xvSlotIllegalInstr);
     }
 
     util::unreachable();
@@ -2719,6 +2722,7 @@ FORCE_INLINE uint64 SH2::MOVBP(const DecodedArgs &args) {
         R[args.rm] += 1;
     }
     TracePopFromStack<debug>(m_tracer, args.rm == 15, R[15]);
+    TraceChangeStack<debug>(m_tracer, args.rn == 15, R[15]);
     AdvancePC<debug, delaySlot>();
     return cycles;
 }
@@ -2734,6 +2738,7 @@ FORCE_INLINE uint64 SH2::MOVWP(const DecodedArgs &args) {
             R[args.rm] += 2;
         }
         TracePopFromStack<debug>(m_tracer, args.rm == 15, R[15]);
+        TraceChangeStack<debug>(m_tracer, args.rn == 15, R[15]);
         AdvancePC<debug, delaySlot>();
     }
     return cycles;
@@ -2750,6 +2755,7 @@ FORCE_INLINE uint64 SH2::MOVLP(const DecodedArgs &args) {
             R[args.rm] += 4;
         }
         TracePopFromStack<debug>(m_tracer, args.rm == 15, R[15]);
+        TraceChangeStack<debug>(m_tracer, args.rn == 15, R[15]);
         AdvancePC<debug, delaySlot>();
     }
     return cycles;
@@ -4079,7 +4085,7 @@ FORCE_INLINE uint64 SH2::RTE() {
     const uint32 address2 = R[15] + 4;
     const uint64 cycles = AccessCycles<false, enableCache>(address1) + AccessCycles<false, enableCache>(address2) + 2;
     const uint32 target = MemReadLong<enableCache>(address1);
-    TraceReturnFromException<debug>(m_tracer, target);
+    TraceReturnFromException<debug>(m_tracer, target, R[15] + 8);
     SetupDelaySlot(target);
     SR.u32 = MemReadLong<enableCache>(address2) & 0x000003F3;
     PC += 2;

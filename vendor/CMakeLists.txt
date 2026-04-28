@@ -54,12 +54,12 @@ add_subdirectory(libchdr)
 
 # Place vendored library projects under a Vendored folder in Visual Studio solutions
 if (MSVC)
+    set_target_properties(chdr-lzma PROPERTIES FOLDER Vendored)
     set_target_properties(chdr-static PROPERTIES FOLDER Vendored)
     if (Ymir_ENABLE_SDL3_APP)
         set_target_properties(imgui PROPERTIES FOLDER Vendored)
     endif ()
     set_target_properties(lz4 PROPERTIES FOLDER Vendored)
-    set_target_properties(lzma PROPERTIES FOLDER Vendored)
     set_target_properties(xxHash PROPERTIES FOLDER Vendored)
 endif ()
 

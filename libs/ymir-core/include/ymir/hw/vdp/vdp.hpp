@@ -184,6 +184,15 @@ public:
         return m_VDP1CyclesShift == 0;
     }
 
+    // Enable or disable VDP1 command processing skip if the first 0x400 bytes are zeros.
+    void SetSkipEmptyVDP1CommandTable(bool enable) {
+        m_skipEmptyVDP1Table = enable;
+    }
+
+    bool IsSkipEmptyVDP1CommandTableVDP1() const {
+        return m_skipEmptyVDP1Table;
+    }
+
     // -------------------------------------------------------------------------
     // Memory dumps
 
@@ -395,6 +404,8 @@ private:
             doDisplayErase = false;
             doVBlankErase = false;
             spilloverCycles = 0;
+
+            lastJumpAddress = 0xFFFFFFFF;
         }
 
         // Is the VDP1 currently drawing?
@@ -406,6 +417,10 @@ private:
         // Command processing cycles spilled over from previous executions.
         // Deducted from future executions to compensate for overshooting the target cycle count.
         uint64 spilloverCycles;
+
+        // Infinite loop detection
+        uint32 lastJumpAddress; // target address of the last Jump To command
+        uint32 loopCount;       // number of jumps taken to the same address
     } m_VDP1CtlState;
 
     // Hacky VDP1 command execution timing penalty accrued from external writes to VRAM
@@ -413,6 +428,7 @@ private:
     static constexpr uint64 kVDP1TimingPenaltyPerWrite = 22;
     uint64 m_VDP1TimingPenaltyCycles; // accumulated cycle penalty
     bool m_stallVDP1OnVRAMWrites = false;
+    bool m_skipEmptyVDP1Table = false; // skip processing empty tables (first 0x400 bytes in VDP1 VRAM == 0x00)
     uint64 m_VDP1CyclesShift = 2;
 
     void VDP1SwapFramebuffer();

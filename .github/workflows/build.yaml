@@ -45,6 +45,7 @@ on:
 
 permissions:
   packages: write
+  contents: read
 
 env:
   USERNAME: StrikerX3
@@ -220,7 +221,7 @@ jobs:
           Copy-Item -Path ".\vendor\concurrentqueue\concurrentqueue\LICENSE.md" -Destination "$licensesDir\concurrentqueue-LICENSE.md"
           Copy-Item -Path ".\vendor\imgui\imgui\LICENSE.txt"                    -Destination "$licensesDir\imgui-LICENSE.txt"
           Copy-Item -Path ".\vendor\libchdr\libchdr\LICENSE.txt"                -Destination "$licensesDir\libchdr-LICENSE.txt"
-          Copy-Item -Path ".\vendor\libchdr\libchdr\deps\lzma-24.05\LICENSE"    -Destination "$licensesDir\lzma-LICENSE"
+          Copy-Item -Path ".\vendor\libchdr\libchdr\deps\lzma-25.01\LICENSE"    -Destination "$licensesDir\lzma-LICENSE"
           Copy-Item -Path ".\vendor\lz4\lz4\lib\LICENSE"                        -Destination "$licensesDir\lz4-LICENSE"
           Copy-Item -Path ".\vendor\mio\LICENSE"                                -Destination "$licensesDir\mio-LICENSE"
           Copy-Item -Path ".\vendor\xxHash\xxHash\LICENSE"                      -Destination "$licensesDir\xxHash-LICENSE"
@@ -259,17 +260,17 @@ jobs:
         architecture:
           - name: "x86_64-SSE2"
             enable_avx2_option: "OFF"
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
           - name: "x86_64-AVX2"
             enable_avx2_option: "ON"
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
           - name: "AArch64-NEON"
             enable_avx2_option: "OFF" # doesn't matter actually
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-24.04-arm
         include:
           - compiler: clang
-            c_compiler: "clang-15"
-            cpp_compiler: "clang++-15"
+            c_compiler: "clang-18"
+            cpp_compiler: "clang++-18"
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -284,7 +285,7 @@ jobs:
           echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
           echo "ymir-artifact-name=ymir-linux-${{ matrix.architecture.name }}-${BUILD_VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Install packages and SDL3 dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install build-essential git make pkg-config \
@@ -296,28 +297,19 @@ jobs:
             libxtst-dev libxkbcommon-dev libdrm-dev \
             libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
             libegl1-mesa-dev libdbus-1-dev libibus-1.0-dev \
-            libudev-dev mono-complete nuget clang-15 \
+            libudev-dev mono-complete libltdl-dev clang-18 \
             autoconf autoconf-archive automake
 
       - name: Bootstrap vcpkg
         shell: bash
         run: ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh
 
-      - name: Add NuGet sources to vcpkg
-        shell: bash
-        env:
-          VCPKG_EXE: ${{ github.workspace }}/vcpkg/vcpkg
-          USERNAME: StrikerX3
-          FEED_URL: https://nuget.pkg.github.com/StrikerX3/index.json
-        run: |
-          nuget sources add \
-            -Source "${{ env.FEED_URL }}" \
-            -StorePasswordInClearText \
-            -Name GitHubPackages \
-            -UserName "${{ env.USERNAME }}" \
-            -Password "${{ secrets.GITHUB_TOKEN }}"
-          nuget setapikey "${{ secrets.GITHUB_TOKEN }}" \
-            -Source "${{ env.FEED_URL }}"
+      - name: Cache vcpkg
+        id: cache-vcpkg
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ${{ github.workspace }}/vcpkg_cache
+          key: linux-${{ matrix.architecture.name }}-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-triplets/**') }}
 
       # This absolute monstrosity of a hack is taken from https://github.com/microsoft/vcpkg/issues/46040
       - name: Overwrite /usr/bin/mono
@@ -327,6 +319,8 @@ jobs:
         run: sudo sh -c "mv /usr/bin/mono /usr/bin/mono-real && echo '#! /usr/bin/env bash\nif [ \"\$1\" = \"/usr/bin/nuget\" ]; then \$*; else /usr/bin/mono-real \$*; fi' > /usr/bin/mono && chmod 755 /usr/bin/mono"
 
       - name: Configure CMake
+        env:
+          VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}/vcpkg_cache,readwrite'
         run: >
           cmake -B ${{ steps.strings.outputs.build-output-dir }}
           -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
@@ -379,7 +373,7 @@ jobs:
           cp -f vendor/concurrentqueue/concurrentqueue/LICENSE.md licenses/concurrentqueue-LICENSE.md
           cp -f vendor/imgui/imgui/LICENSE.txt                    licenses/imgui-LICENSE.txt
           cp -f vendor/libchdr/libchdr/LICENSE.txt                licenses/libchdr-LICENSE.txt
-          cp -f vendor/libchdr/libchdr/deps/lzma-24.05/LICENSE    licenses/lzma-LICENSE
+          cp -f vendor/libchdr/libchdr/deps/lzma-25.01/LICENSE    licenses/lzma-LICENSE
           cp -f vendor/lz4/lz4/lib/LICENSE                        licenses/lz4-LICENSE
           cp -f vendor/mio/LICENSE                                licenses/mio-LICENSE
           cp -f vendor/xxHash/xxHash/LICENSE                      licenses/xxHash-LICENSE
@@ -509,7 +503,7 @@ jobs:
           cp -f vendor/concurrentqueue/concurrentqueue/LICENSE.md licenses/concurrentqueue-LICENSE.md
           cp -f vendor/imgui/imgui/LICENSE.txt                    licenses/imgui-LICENSE.txt
           cp -f vendor/libchdr/libchdr/LICENSE.txt                licenses/libchdr-LICENSE.txt
-          cp -f vendor/libchdr/libchdr/deps/lzma-24.05/LICENSE    licenses/lzma-LICENSE
+          cp -f vendor/libchdr/libchdr/deps/lzma-25.01/LICENSE    licenses/lzma-LICENSE
           cp -f vendor/lz4/lz4/lib/LICENSE                        licenses/lz4-LICENSE
           cp -f vendor/mio/LICENSE                                licenses/mio-LICENSE
           cp -f vendor/xxHash/xxHash/LICENSE                      licenses/xxHash-LICENSE

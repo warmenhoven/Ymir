@@ -7,6 +7,7 @@
 #include <concepts>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace app {
@@ -79,6 +80,11 @@ struct SH2Stack {
         return stackSize;
     }
 
+    bool ContainsAddress(uint32 address) const {
+        address &= ~3u;
+        return (baseAddress - address) / sizeof(uint32) <= entries.size();
+    }
+
     const SH2StackEntry *GetEntry(uint32 address) const {
         address &= ~3u;
         if (address >= baseAddress) {
@@ -107,7 +113,7 @@ struct SH2ExecAnalyst {
     void BranchDelay(uint32 target);
     void Call(uint32 target);
     void Return(uint32 target);
-    void ReturnFromException(uint32 target);
+    void ReturnFromException(uint32 target, uint32 newSP);
     void Exception(uint8 vecNum, uint32 oldPC, uint32 oldSP, uint32 newPC);
     void Trap(uint8 vecNum, uint32 oldPC, uint32 oldSP, uint32 newPC);
 
