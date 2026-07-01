@@ -10,7 +10,9 @@
 #include <ymir/hw/vdp/vdp_configs.hpp>
 #include <ymir/hw/vdp/vdp_defs.hpp>
 #include <ymir/hw/cart/cart.hpp>
+#include <ymir/core/hash.hpp>
 #include <ymir/db/game_db.hpp>
+#include <ymir/db/ipl_db.hpp>
 #include <ymir/db/rom_cart_db.hpp>
 #include <ymir/sys/backup_ram.hpp>
 #include <ymir/sys/clocks.hpp>
@@ -574,7 +576,74 @@ static void apply_core_options() {
 // BIOS loading
 // ---------------------------------------------------------------------------
 
-static bool load_bios() {
+struct BiosCandidate {
+    const char *name;
+    std::array<uint8_t, ymir::sys::kIPLSize> data;
+    const ymir::db::IPLROMInfo *info; // nullptr if the dump isn't in ymir-core's IPL database
+    ymir::db::SystemRegion region;    // best-known region: from `info` if present, otherwise from
+                                       // kLocalBiosHashes below, otherwise None
+};
+
+// Fallback identification, by hash, for common BIOS dumps not currently in ymir-core's IPL
+// database (libs/ymir-core/src/ymir/db/ipl_db.cpp). Region corroborated against this core's own
+// dist/info firmware descriptions and mednafen_saturn_libretro's, which agree on both.
+static const struct {
+    ymir::XXH128Hash hash;
+    ymir::db::SystemRegion region;
+} kLocalBiosHashes[] = {
+    // sega_101.bin
+    {{0x4F, 0x38, 0x04, 0xED, 0x5A, 0xB3, 0x2B, 0xFC, 0xEF, 0xBB, 0x7C, 0x7A, 0xD7, 0xA4, 0x92, 0xC7},
+     ymir::db::SystemRegion::JP},
+    // mpr-17933.bin
+    {{0x62, 0xF6, 0x13, 0x11, 0xBA, 0x6D, 0x42, 0x98, 0x2A, 0xDA, 0x24, 0x7A, 0xB1, 0x37, 0xF0, 0x72},
+     ymir::db::SystemRegion::US_EU},
+};
+
+static ymir::db::SystemRegion local_bios_region(const ymir::XXH128Hash &hash) {
+    for (const auto &entry : kLocalBiosHashes) {
+        if (entry.hash == hash)
+            return entry.region;
+    }
+    return ymir::db::SystemRegion::None;
+}
+
+static const char *bios_region_name(ymir::db::SystemRegion region) {
+    switch (region) {
+    case ymir::db::SystemRegion::JP: return "JP";
+    case ymir::db::SystemRegion::US_EU: return "US_EU";
+    case ymir::db::SystemRegion::KR: return "KR";
+    default: return "none";
+    }
+}
+
+// Maps the ymir_region core option to the IPL database region it should prefer. Returns
+// SystemRegion::None for "auto", meaning no BIOS is preferred over another by this option alone.
+static ymir::db::SystemRegion preferred_bios_region() {
+    auto region_str = get_variable("ymir_region");
+    ymir::db::SystemRegion region;
+    if (region_str == "japan")
+        region = ymir::db::SystemRegion::JP;
+    else if (region_str == "north_america" || region_str == "europe")
+        region = ymir::db::SystemRegion::US_EU;
+    else
+        region = ymir::db::SystemRegion::None;
+    LOG(RETRO_LOG_INFO, "[Ymir] ymir_region=%s -> preferred BIOS region: %s\n", region_str.c_str(),
+        bios_region_name(region));
+    return region;
+}
+
+// Maps an SMPC area code (as returned by SMPC::GetAreaCode()) to the closest IPL database region.
+static ymir::db::SystemRegion area_code_to_bios_region(uint8_t area_code) {
+    switch (area_code) {
+    case 0x1: return ymir::db::SystemRegion::JP;
+    case 0x6: return ymir::db::SystemRegion::KR;
+    default: return ymir::db::SystemRegion::US_EU;
+    }
+}
+
+// Scans the system directory for known BIOS dumps and hashes each against the IPL database.
+static std::vector<BiosCandidate> scan_bios_candidates() {
+    std::vector<BiosCandidate> candidates;
     for (const char *name : kBiosFilenames) {
         auto path = std::filesystem::path(core.system_dir) / name;
         std::error_code ec;
@@ -586,19 +655,60 @@ static bool load_bios() {
         if (!file)
             continue;
 
-        std::array<uint8_t, ymir::sys::kIPLSize> bios{};
-        file.read(reinterpret_cast<char *>(bios.data()), bios.size());
+        BiosCandidate candidate{name, {}, nullptr, ymir::db::SystemRegion::None};
+        file.read(reinterpret_cast<char *>(candidate.data.data()), candidate.data.size());
         if (!file)
             continue;
 
-        core.saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(bios));
-        LOG(RETRO_LOG_INFO, "[Ymir] Loaded BIOS: %s\n", name);
-        return true;
+        auto hash = ymir::CalcHash128(candidate.data.data(), candidate.data.size());
+        candidate.info = ymir::db::GetIPLROMInfo(hash);
+        if (candidate.info != nullptr) {
+            candidate.region = candidate.info->region;
+            LOG(RETRO_LOG_INFO, "[Ymir] Found BIOS candidate: %s (version %s, region %s)\n", candidate.name,
+                candidate.info->version, bios_region_name(candidate.region));
+        } else {
+            candidate.region = local_bios_region(hash);
+            if (candidate.region != ymir::db::SystemRegion::None) {
+                LOG(RETRO_LOG_INFO,
+                    "[Ymir] Found BIOS candidate: %s (not in IPL database, region %s from local hash list, hash "
+                    "%s)\n",
+                    candidate.name, bios_region_name(candidate.region), ymir::ToString(hash).c_str());
+            } else {
+                LOG(RETRO_LOG_INFO, "[Ymir] Found BIOS candidate: %s (unrecognized dump, hash %s)\n", candidate.name,
+                    ymir::ToString(hash).c_str());
+            }
+        }
+        candidates.push_back(std::move(candidate));
     }
+    if (candidates.empty()) {
+        LOG(RETRO_LOG_INFO, "[Ymir] No BIOS candidates found in system directory.\n");
+    }
+    return candidates;
+}
 
-    LOG(RETRO_LOG_ERROR, "[Ymir] No Saturn BIOS found in system directory.\n");
-    LOG(RETRO_LOG_ERROR, "[Ymir] Looked for: sega_101.bin, mpr-17933.bin, saturn_bios.bin\n");
-    return false;
+// Picks the index of the best candidate for the given preferred region, falling back to the
+// first candidate found (kBiosFilenames priority order) if none match.
+static size_t select_bios_candidate(const std::vector<BiosCandidate> &candidates,
+                                    ymir::db::SystemRegion preferred_region) {
+    if (preferred_region != ymir::db::SystemRegion::None) {
+        for (size_t i = 0; i < candidates.size(); i++) {
+            if (candidates[i].region == preferred_region)
+                return i;
+        }
+    }
+    return 0;
+}
+
+static void load_bios_candidate(BiosCandidate &candidate) {
+    core.saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(candidate.data));
+    if (candidate.info != nullptr) {
+        LOG(RETRO_LOG_INFO, "[Ymir] Loaded BIOS: %s (version %s)\n", candidate.name, candidate.info->version);
+    } else if (candidate.region != ymir::db::SystemRegion::None) {
+        LOG(RETRO_LOG_INFO, "[Ymir] Loaded BIOS: %s (not in IPL database, region %s from local hash list)\n",
+            candidate.name, bios_region_name(candidate.region));
+    } else {
+        LOG(RETRO_LOG_INFO, "[Ymir] Loaded BIOS: %s (unrecognized dump)\n", candidate.name);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1104,9 +1214,17 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game) {
         core.saturn->configuration.system.autodetectRegion = true;
     }
 
-    // Load BIOS
-    if (!load_bios())
+    // Scan for known BIOS dumps and load the best match for ymir_region (or the first one found,
+    // if set to auto). The disc's actual region isn't known yet at this point; see the BIOS
+    // reconciliation step after LoadDisc() below.
+    auto bios_candidates = scan_bios_candidates();
+    if (bios_candidates.empty()) {
+        LOG(RETRO_LOG_ERROR, "[Ymir] No Saturn BIOS found in system directory.\n");
+        LOG(RETRO_LOG_ERROR, "[Ymir] Looked for: sega_101.bin, mpr-17933.bin, saturn_bios.bin\n");
         return false;
+    }
+    size_t bios_index = select_bios_candidate(bios_candidates, preferred_bios_region());
+    load_bios_candidate(bios_candidates[bios_index]);
 
     // Load CD block ROM for LLE (optional)
     core.cdblock_rom_loaded = load_cdblock_rom();
@@ -1157,6 +1275,28 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game) {
     }
 
     core.saturn->LoadDisc(std::move(disc)); // Also triggers AutodetectRegion
+
+    // Now that the disc's region is known (via SMPC's autodetected area code), reload a
+    // better-matching BIOS if one is available. Safe to do here: LoadIPL() has no side effects
+    // beyond copying into memory, and Reset() (which starts CPU execution) hasn't run yet.
+    {
+        auto area_code = core.saturn->SMPC.GetAreaCode();
+        auto detected_region = area_code_to_bios_region(area_code);
+        LOG(RETRO_LOG_INFO, "[Ymir] Disc region detected: area code 0x%X -> BIOS region %s\n", area_code,
+            bios_region_name(detected_region));
+
+        size_t best_index = select_bios_candidate(bios_candidates, detected_region);
+        bool have_confirmed_match = bios_candidates[best_index].region == detected_region;
+        if (best_index != bios_index && have_confirmed_match) {
+            LOG(RETRO_LOG_INFO, "[Ymir] Switching to better BIOS match: %s\n", bios_candidates[best_index].name);
+            bios_index = best_index;
+            load_bios_candidate(bios_candidates[bios_index]);
+        } else if (!have_confirmed_match) {
+            LOG(RETRO_LOG_INFO,
+                "[Ymir] No BIOS candidate confirmed for region %s; keeping %s\n",
+                bios_region_name(detected_region), bios_candidates[bios_index].name);
+        }
+    }
 
     if (core.disc_paths.size() > 1)
         LOG(RETRO_LOG_INFO, "[Ymir] M3U: loaded disc 1 of %zu\n", core.disc_paths.size());
