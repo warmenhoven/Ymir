@@ -18,6 +18,8 @@
       -DYmir_ENABLE_SANDBOX=OFF
       -DYmir_ENABLE_YMDASM=OFF
       -DYmir_ENABLE_TESTS=OFF
+      -DYmir_ENABLE_YMIR_HEADLESS=OFF
+      -DYmir_ENABLE_YMIR_DBG=OFF
       -DYmir_DEV_BUILD=OFF
       $CORE_ARCH_ARGS
     GIT_SUBMODULE_STRATEGY: recursive
@@ -97,7 +99,7 @@ libretro-build-osx-x64:
     - .libretro-osx-cmake-x86_64
     - .core-defs
   variables:
-    MACOSX_DEPLOYMENT_TARGET: "10.15"
+    MACOSX_DEPLOYMENT_TARGET: "11.0"
     CORE_ARCH_ARGS: "-DYmir_AVX2=ON"
 
 # MacOS ARM 64-bit
@@ -105,6 +107,8 @@ libretro-build-osx-arm64:
   extends:
     - .libretro-osx-cmake-arm64
     - .core-defs
+  variables:
+    MACOSX_DEPLOYMENT_TARGET: "11.0"
 
 ################################### CELLULAR #################################
 # Android ARMv8a
@@ -130,7 +134,7 @@ libretro-build-ios-arm64:
     - .libretro-ios-cmake-arm64
     - .core-defs
   variables:
-    IOS_MINVER: "13.0"
+    IOS_MINVER: "14.0"
 
 ################################### CONSOLES #################################
 # tvOS
@@ -139,4 +143,4 @@ libretro-build-tvos-arm64:
     - .libretro-tvos-cmake-arm64
     - .core-defs
   variables:
-    MINVER: "13.0"
+    MINVER: "14.0"

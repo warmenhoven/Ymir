@@ -805,6 +805,68 @@ static bool disc_get_image_label(unsigned index, char *buf, size_t len) {
 }
 
 // ---------------------------------------------------------------------------
+// SMPC persistent data (RTC, language, area code)
+//
+// The frontend owns file I/O for this data; SMPC only holds it in memory.
+// The binary format below matches ymir-sdl3's PersistenceService so save
+// files are interchangeable between frontends.
+// ---------------------------------------------------------------------------
+
+static constexpr uint8_t kPersistentSMPCDataVersion = 0x01;
+
+static bool load_persistent_smpc_data(const std::filesystem::path &path, ymir::smpc::PersistentSMPCData &data) {
+    std::ifstream in{path, std::ios::binary};
+    if (!in)
+        return false;
+
+    int version = in.get();
+    if (version != kPersistentSMPCDataVersion)
+        return false;
+    in.seekg(3, std::ios::cur); // skip 3 reserved bytes
+
+    std::array<uint8_t, 4> smem{};
+    bool ste{};
+    uint64_t rtc_offset{};
+    uint64_t rtc_timestamp{};
+
+    in.read(reinterpret_cast<char *>(smem.data()), sizeof(smem));
+    in.read(reinterpret_cast<char *>(&ste), sizeof(ste));
+    in.read(reinterpret_cast<char *>(&rtc_offset), sizeof(rtc_offset));
+    in.read(reinterpret_cast<char *>(&rtc_timestamp), sizeof(rtc_timestamp));
+    if (!in)
+        return false;
+
+    data.SMEM = smem;
+    data.STE = ste;
+    data.rtc.offset = bit::little_endian_swap<uint64_t>(rtc_offset);
+    data.rtc.timestamp = bit::little_endian_swap<uint64_t>(rtc_timestamp);
+    return true;
+}
+
+static void save_persistent_smpc_data(const ymir::smpc::PersistentSMPCData &data, void *) {
+    if (core.save_dir.empty())
+        return;
+    const std::filesystem::path path = std::filesystem::path(core.save_dir) / "smpc.bin";
+
+    std::ofstream out{path, std::ios::binary};
+    if (!out)
+        return;
+
+    out.put(kPersistentSMPCDataVersion);
+    out.put(0x00); // reserved for future expansion
+    out.put(0x00); // reserved for future expansion
+    out.put(0x00); // reserved for future expansion
+
+    const uint64_t rtc_offset = bit::little_endian_swap<uint64_t>(data.rtc.offset);
+    const uint64_t rtc_timestamp = bit::little_endian_swap<uint64_t>(data.rtc.timestamp);
+
+    out.write(reinterpret_cast<const char *>(data.SMEM.data()), sizeof(data.SMEM));
+    out.write(reinterpret_cast<const char *>(&data.STE), sizeof(data.STE));
+    out.write(reinterpret_cast<const char *>(&rtc_offset), sizeof(rtc_offset));
+    out.write(reinterpret_cast<const char *>(&rtc_timestamp), sizeof(rtc_timestamp));
+}
+
+// ---------------------------------------------------------------------------
 // libretro API: callback setters
 // ---------------------------------------------------------------------------
 
@@ -1099,9 +1161,11 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game) {
 
     // Load SMPC persistent data (RTC, language, area code) before hard reset
     if (!core.save_dir.empty()) {
-        std::error_code ec;
-        core.saturn->SMPC.LoadPersistentDataFrom(
-            std::filesystem::path(core.save_dir) / "smpc.bin", ec);
+        ymir::smpc::PersistentSMPCData smpc_data{};
+        if (load_persistent_smpc_data(std::filesystem::path(core.save_dir) / "smpc.bin", smpc_data)) {
+            core.saturn->SMPC.LoadPersistentData(smpc_data);
+        }
+        core.saturn->SMPC.SetPersistDataCallback({nullptr, save_persistent_smpc_data});
     }
 
     // Apply remaining options

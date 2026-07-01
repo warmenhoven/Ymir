@@ -58,8 +58,11 @@ add_subdirectory(libchdr)
 if (NOT Ymir_LIBRARY_ONLY)
     # dear ImGui - https://github.com/ocornut/imgui
     # - Using the docking branch
-    message(STATUS "==> dear ImGui")
-    add_subdirectory(imgui EXCLUDE_FROM_ALL)
+    # libretro TODO: use Ymir_LIBRARY_ONLY instead
+    if (Ymir_ENABLE_SDL3_APP)
+        message(STATUS "==> dear ImGui")
+        add_subdirectory(imgui EXCLUDE_FROM_ALL)
+    endif ()
 
     # lz4 - https://github.com/lz4/lz4
     # - Unable to configure AVX2 support from vcpkg
@@ -73,7 +76,9 @@ if (MSVC)
     set_target_properties(chdr-static PROPERTIES FOLDER Vendored)
     set_target_properties(xxHash PROPERTIES FOLDER Vendored)
     if (NOT Ymir_LIBRARY_ONLY)
-        set_target_properties(imgui PROPERTIES FOLDER Vendored)
+        if (Ymir_ENABLE_SDL3_APP)
+            set_target_properties(imgui PROPERTIES FOLDER Vendored)
+        endif ()
         set_target_properties(lz4 PROPERTIES FOLDER Vendored)
     endif ()
 endif ()
